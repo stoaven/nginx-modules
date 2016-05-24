@@ -4,10 +4,11 @@
 
 typedef struct {
     ngx_flag_t  sample_enable;
+	ngx_int_t sample_ids_var_index;
 } ngx_http_sample_loc_conf_t;
 
 typedef struct {
-	ngx_str_t sample_ids;
+	ngx_int_t sample_ids_var_index;
 } ngx_http_sample_ctx_t;
 
 static ngx_int_t ngx_http_sample_init(ngx_conf_t *cf);
@@ -74,8 +75,11 @@ static ngx_http_variable_t ngx_http_sample_variables[] = {
 static ngx_int_t
 ngx_http_sample_init(ngx_conf_t *cf)
 {
-    ngx_http_handler_pt        *h;
-    ngx_http_core_main_conf_t  *cmcf;
+    ngx_http_handler_pt        *h = NULL;
+    ngx_http_core_main_conf_t  *cmcf = NULL;
+	ngx_http_sample_loc_conf_t *slcf = NULL;
+	ngx_str_t sample_ids_var_name = ngx_string("sample_ids");
+	
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
@@ -86,6 +90,13 @@ ngx_http_sample_init(ngx_conf_t *cf)
 
     *h = ngx_http_sample_handler;
 
+	slcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_sample_module);
+	
+	slcf->sample_ids_var_index = ngx_http_get_variable_index(cf, &sample_ids_var_name);
+	if (slcf->sample_ids_var_index == NGX_ERROR) {
+		return NGX_ERROR;
+	}
+
     return NGX_OK;
 }
 
@@ -94,9 +105,10 @@ static ngx_int_t
 ngx_http_sample_handler(ngx_http_request_t *r) 
 {
     ngx_http_sample_loc_conf_t *slcf = NULL;
-	ngx_http_sample_ctx_t  *ctx = NULL;
+	ngx_http_variable_value_t *sample_ids_var_value = NULL;
 	ngx_str_t sample_ids = ngx_string("456_789_123");
-	
+	ngx_int_t sample_ids_var_index;
+
 
     slcf = ngx_http_get_module_loc_conf(r, ngx_http_sample_module);
 	if (slcf->sample_enable == NGX_CONF_UNSET) {
@@ -104,24 +116,17 @@ ngx_http_sample_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
 	}
 
-    ctx = ngx_http_get_module_ctx(r, ngx_http_sample_module);
-
-    if (ctx == NULL) {
-		ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_sample_ctx_t));
-		if (ctx == NULL) {
-			return NGX_ERROR;
-		}
-		ngx_http_set_ctx(r, ctx, ngx_http_sample_module);
-    }
-
-	ctx->sample_ids.data = ngx_palloc(r->pool, sample_ids.len);
-	if (ctx->sample_ids.data == NULL) {
+	sample_ids_var_value = ngx_http_get_indexed_variable(r, slcf->sample_ids_var_index);
+	if (sample_ids_var_value == NULL) {
 		return NGX_ERROR;
 	}
 	
-	ngx_memcpy(ctx->sample_ids.data, sample_ids.data, sample_ids.len);
-	ctx->sample_ids.data.len = sample_ids.len;
-	
+	sample_ids_var_value->data = sample_ids.data;
+	sample_ids_var_value->len = sample_ids.len;
+	sample_ids_var_value->valid = 1;
+    sample_ids_var_value->no_cacheable = 0;
+    sample_ids_var_value->not_found = 0;
+		
     return NGX_DECLINED;
 }
 
@@ -167,22 +172,28 @@ static ngx_int_t
 ngx_http_sample_ids_variable(ngx_http_request_t *r, 
     ngx_http_variable_value_t *v, uintptr_t data)
 {
-    ngx_http_sample_ctx_t  *ctx = NULL;
+	ngx_http_sample_loc_conf_t *slcf = NULL;
+	ngx_http_variable_value_t *sample_ids_var_value = NULL;
+	
 
+    slcf = ngx_http_get_module_loc_conf(r, ngx_http_sample_module);
+	if (slcf == NULL) {
+		v->not_found = 1;
+        return NGX_OK;
+	}
 
-    ctx = ngx_http_get_module_ctx(r, ngx_http_sample_module);
-
-    if (ctx == NULL) {
+	sample_ids_var_value = ngx_http_get_indexed_variable(r, slcf->sample_ids_var_index);
+	if (sample_ids_var_value == NULL) {
 		v->not_found = 1;
 		return NGX_OK;
-    }
+	}
 
     v->valid = 1;
     v->no_cacheable = 0;
     v->not_found = 0;
 
-    v->data = ctx->sample_ids.data;
-    v->len = ctx->sample_ids.len;
+    v->data = sample_ids_var_value->data;
+    v->len = sample_ids_var_value->len;
 
     return NGX_OK;
 }
